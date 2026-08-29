@@ -1,0 +1,366 @@
+{
+  "name": "Research Gap Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "researchos/research/gaps",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "2ee99fff-d649-476a-bb70-a1b9fad631a6",
+      "name": "Research Gap Discovery Input",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        192
+      ],
+      "webhookId": "d0037c8a-23d8-435d-b901-1990cea8126c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const root = $input.first().json || {};\n\nconst body =\n  root.body && typeof root.body === 'object'\n    ? root.body\n    : root;\n\nconst workspace_id = Number(body.workspace_id);\nconst research_question =\n  typeof body.research_question === 'string'\n    ? body.research_question.trim()\n    : '';\n\nconst synthesis = body.synthesis;\n\nconst is_valid =\n  Number.isFinite(workspace_id) &&\n  workspace_id > 0 &&\n  research_question !== '' &&\n  synthesis !== undefined &&\n  synthesis !== null;\n\nreturn [{\n  json: {\n    workspace_id: is_valid ? workspace_id : null,\n    research_question: research_question || null,\n    synthesis: synthesis || null,\n    is_valid,\n    error: is_valid\n      ? null\n      : 'workspace_id, research_question and synthesis are required'\n  }\n}];"
+      },
+      "id": "ce432029-9b61-4c4c-8292-0946f53ab211",
+      "name": "Normalize Gap Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "is-valid",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8377b624-f73d-4287-8e7a-772c6ffb3809",
+      "name": "Validate Gap Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        432,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-5-mini",
+          "cachedResultName": "gpt-5-mini"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "You are a rigorous research analyst. You identify research gaps by reasoning ONLY from the supplied synthesis. Do NOT invent papers, evidence, citations, or facts that are not present in the supplied input. If the synthesis does not support a claim, do not make it.\n\nReturn ONLY a JSON object with exactly this structure:\n{\n  \"gap_summary\": \"A concise summary of the major research gaps.\",\n  \"research_gaps\": [\n    {\n      \"gap\": \"Specific research gap\",\n      \"evidence\": \"What in the supplied synthesis indicates this gap\",\n      \"importance\": \"Why this gap matters\"\n    }\n  ],\n  \"research_opportunities\": [\n    \"Potential research direction 1\",\n    \"Potential research direction 2\"\n  ]\n}",
+              "role": "system"
+            },
+            {
+              "content": "=Analyze the following research synthesis and identify the research gaps. Reason only from the supplied synthesis.\n\nworkspace_id: {{ $json.workspace_id }}\n\nresearch_question:\n{{ $json.research_question }}\n\nsynthesis:\n{{ JSON.stringify($json.synthesis) }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {
+          "maxTokens": 4000
+        }
+      },
+      "id": "4fe0a4a9-9abd-4fa8-8232-6767f348ae54",
+      "name": "AI Research Gap Analysis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        464,
+        448
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "GtF6L5Ede6qLNFHH",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const upstream = $('Normalize Gap Input').first().json || {};\nconst workspace_id = upstream.workspace_id ?? null;\nconst research_question = upstream.research_question ?? null;\n\nconst aiItem = $input.first().json || {};\n\n// With JSON output enabled, message.content is already a parsed object;\n// fall back to parsing a string if needed.\nlet raw = aiItem.message && aiItem.message.content !== undefined\n  ? aiItem.message.content\n  : aiItem;\n\nlet gap_analysis = null;\nlet error = null;\n\ntry {\n  if (typeof raw === 'string') {\n    gap_analysis = JSON.parse(raw);\n  } else if (raw && typeof raw === 'object') {\n    gap_analysis = raw;\n  }\n} catch (e) {\n  gap_analysis = null;\n  error = 'Failed to parse AI gap analysis output: ' + e.message;\n}\n\nconst is_valid =\n  gap_analysis !== null &&\n  typeof gap_analysis === 'object' &&\n  Array.isArray(gap_analysis.research_gaps) &&\n  gap_analysis.research_gaps.length > 0;\n\nif (!is_valid && !error) {\n  error = 'AI gap analysis did not contain a non-empty research_gaps array';\n}\n\nreturn [{\n  json: {\n    workspace_id,\n    research_question,\n    gap_analysis: is_valid ? gap_analysis : null,\n    is_valid,\n    error: is_valid ? null : error\n  }\n}];"
+      },
+      "id": "7f7bd22f-2935-41d4-9795-c8a329765340",
+      "name": "Validate/Parse Gap Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        768,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "success",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c4a59796-7105-4d9e-9e48-82e2173b0a6c",
+      "name": "Is Gap Analysis Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        640,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    success: true,\n    message: 'Research gaps identified successfully',\n    workspace_id: $json.workspace_id || null,\n    research_question: $json.research_question || null,\n    gap_analysis: $json.gap_analysis || null\n  }\n}];"
+      },
+      "id": "80b435dd-3ca2-428c-ad80-7daeafad1d5c",
+      "name": "Prepare Gap Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        944,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "37e8e867-baca-4aab-b6f0-e44cff4f3f37",
+      "name": "Research Gap Discovery Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1168,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    success: false,\n    message: 'Research gap analysis failed',\n    workspace_id: $json.workspace_id || null,\n    error: $json.error || 'Unknown gap analysis error'\n  }\n}];"
+      },
+      "id": "0a6d3ecc-a36c-4d67-b187-6ad1005e3619",
+      "name": "Prepare Gap Analysis Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "70ffd7a1-341f-46e3-b035-cfa94d8b286c",
+      "name": "Gap Analysis Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    success: false,\n    error: $json.error || 'Invalid research gap discovery input',\n    workspace_id: $json.workspace_id || null\n  }\n}];"
+      },
+      "id": "ecac55fb-281a-45fe-9542-999b3254cbab",
+      "name": "Prepare Gap Validation Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "68acd1d9-3642-4070-a326-42c992ac7f36",
+      "name": "Gap Validation Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        896,
+        624
+      ]
+    }
+  ],
+  "connections": {
+    "Research Gap Discovery Input": {
+      "main": [
+        [
+          {
+            "node": "Normalize Gap Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Gap Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Gap Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Gap Input": {
+      "main": [
+        [
+          {
+            "node": "AI Research Gap Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Gap Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Research Gap Analysis": {
+      "main": [
+        [
+          {
+            "node": "Validate/Parse Gap Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate/Parse Gap Output": {
+      "main": [
+        [
+          {
+            "node": "Is Gap Analysis Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Gap Analysis Valid?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Gap Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Gap Analysis Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gap Success Response": {
+      "main": [
+        [
+          {
+            "node": "Research Gap Discovery Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gap Analysis Error": {
+      "main": [
+        [
+          {
+            "node": "Gap Analysis Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Gap Validation Error": {
+      "main": [
+        [
+          {
+            "node": "Gap Validation Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 1,
+  "meta": null
+}
