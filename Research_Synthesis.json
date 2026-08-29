@@ -1,0 +1,708 @@
+{
+  "name": "Research Synthesis",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "researchos/research/synthesize",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "492ba9e9-0077-4b9f-a9f6-248378599e75",
+      "name": "Research Synthesis Input",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        384
+      ],
+      "webhookId": "a15d389b-84c9-4472-938f-84893a0a56f5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = ($input.first().json && $input.first().json.body) || {};\n\nconst rawWorkspace = body.workspace_id;\nconst rawQuestion = body.research_question;\nconst rawMax = body.max_papers;\n\nconst workspace_id = Number(rawWorkspace);\nconst research_question = typeof rawQuestion === 'string' ? rawQuestion.trim() : (rawQuestion == null ? '' : String(rawQuestion).trim());\n\nlet max_papers = (rawMax === undefined || rawMax === null || rawMax === \"\") ? 10 : Number(rawMax);\nif (!Number.isFinite(max_papers)) { max_papers = 10; }\nif (max_papers > 20) { max_papers = 20; }\n\nreturn [{ json: { workspace_id, research_question, max_papers } }];"
+      },
+      "id": "757a4ac4-6a94-44a1-8aeb-9d3276a4f43f",
+      "name": "Normalize Synthesis Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json || {};\nconst workspace_id = j.workspace_id;\nconst research_question = j.research_question;\nconst max_papers = j.max_papers;\n\nconst errors = [];\nif (!Number.isInteger(workspace_id) || workspace_id <= 0) {\n  errors.push('workspace_id must be a positive integer');\n}\nif (typeof research_question !== 'string' || research_question.length === 0) {\n  errors.push('research_question must be a non-empty string');\n}\nif (!Number.isInteger(max_papers) || max_papers < 1 || max_papers > 20) {\n  errors.push('max_papers must be an integer between 1 and 20');\n}\n\nconst is_valid = errors.length === 0;\nreturn [{ json: {\n  workspace_id,\n  research_question,\n  max_papers,\n  is_valid,\n  error: is_valid ? null : errors.join('; '),\n} }];"
+      },
+      "id": "4c2212f9-69dd-4c20-9f75-697f10ab50ed",
+      "name": "Validate Synthesis Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "combinator": "and",
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "valid",
+              "leftValue": "={{ $json.is_valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "05a73ff5-9f27-4245-bb5a-703f38029c0d",
+      "name": "Is Input Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "papers",
+        "limit": "={{ $json.max_papers }}",
+        "orderBy": "created_at.desc",
+        "matchType": "allFilters",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "workspace_id",
+              "condition": "eq",
+              "keyValue": "={{ $json.workspace_id }}"
+            }
+          ]
+        }
+      },
+      "id": "66f8ae83-f027-43b7-ac31-4ef4eeb2cdaf",
+      "name": "Fetch Workspace Papers",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        896,
+        288
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "B4y2D5pRDOtwXTFL",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Validate Synthesis Input').first().json || {};\nconst papers = $input.all()\n  .map(i => i.json)\n  .filter(j => j && j.id != null);\n\nreturn [{ json: {\n  workspace_id: ctx.workspace_id,\n  research_question: ctx.research_question,\n  max_papers: ctx.max_papers,\n  papers,\n  paper_count: papers.length,\n} }];"
+      },
+      "id": "f9297a34-8557-4de0-b118-7c1c583dead6",
+      "name": "Aggregate Papers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "has-papers",
+              "leftValue": "={{ $json.paper_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eb69af9d-9bbc-4f71-930a-8005fdf7ed2d",
+      "name": "Papers Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1344,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "paper_analysis",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "=paper_id=in.({{ $json.papers.map(p => p.id).join(',') }})"
+      },
+      "id": "1bab2034-3418-40b0-9616-2058cf319bfe",
+      "name": "Fetch Paper Analyses",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        192
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "B4y2D5pRDOtwXTFL",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const agg = $('Aggregate Papers').first().json || {};\nconst papers = agg.papers || [];\n\nconst analyses = $('Fetch Paper Analyses').all()\n  .map(i => i.json)\n  .filter(j => j && j.paper_id != null);\n\nconst byPaper = {};\nfor (const a of analyses) { byPaper[a.paper_id] = a; }\n\nconst evidence = papers.map(p => {\n  const a = byPaper[p.id];\n  const base = {\n    paper_id: p.id,\n    title: p.title,\n    authors: p.authors,\n    abstract: p.abstract,\n    publication_date: p.publication_date,\n    venue: p.venue,\n    paper_url: p.paper_url,\n  };\n  if (!a) {\n    return Object.assign(base, { analysis_available: false });\n  }\n  return Object.assign(base, {\n    analysis_available: true,\n    summary: a.summary,\n    key_contributions: a.key_contributions,\n    methodology: a.methodology,\n    datasets: a.datasets,\n    models_used: a.models_used,\n    limitations: a.limitations,\n    future_work: a.future_work,\n    keywords: a.keywords,\n    research_gaps: a.research_gaps,\n  });\n});\n\nconst analyzed_evidence = evidence.filter(e => e.analysis_available);\nconst papers_considered = analyzed_evidence.map(e => e.paper_id);\n\nreturn [{ json: {\n  workspace_id: agg.workspace_id,\n  research_question: agg.research_question,\n  max_papers: agg.max_papers,\n  evidence,\n  analyzed_evidence,\n  analyzed_count: analyzed_evidence.length,\n  papers_considered,\n} }];"
+      },
+      "id": "1022f927-546e-4257-8f01-e4dca1968288",
+      "name": "Prepare Research Evidence",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1792,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "has-analysis",
+              "leftValue": "={{ $json.analyzed_count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7c55bf22-8bea-4860-860a-4067071bb253",
+      "name": "Has Analysis Evidence?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2016,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-5-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-5-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the research synthesis engine for ResearchOS.\n\nYour task is to synthesize evidence from a collection of research papers in response to a user's research question.\n\nUse ONLY the information provided in the supplied paper metadata and analyses.\n\nDo not invent:\n- papers\n- authors\n- findings\n- statistics\n- citations\n- methodologies\n- claims\n- publication dates\n\nIf the available evidence is insufficient to support a claim, explicitly say that the evidence is insufficient.\n\nDistinguish clearly between:\n- findings directly supported by the papers\n- reasonable synthesis across multiple papers\n- gaps or limitations in the available evidence\n\nDo not treat the AI-generated paper analyses as infallible. If the provided analyses contain uncertainty or limitations, preserve that uncertainty.\n\nProduce a concise but academically useful research synthesis.\nDo not simply summarize each paper individually; synthesize the evidence across papers.\n\nReturn ONLY a JSON object with EXACTLY this structure:\n{\n  \"research_question\": \"...\",\n  \"overview\": \"...\",\n  \"key_themes\": [ { \"theme\": \"...\", \"description\": \"...\", \"supporting_papers\": [1, 2] } ],\n  \"major_findings\": [ { \"finding\": \"...\", \"supporting_papers\": [1, 2] } ],\n  \"comparison\": [ { \"aspect\": \"...\", \"synthesis\": \"...\" } ],\n  \"research_gaps\": [ \"...\" ],\n  \"limitations\": [ \"...\" ],\n  \"conclusion\": \"...\",\n  \"papers_considered\": [1, 2, 3]\n}\n\nsupporting_papers and papers_considered MUST contain actual paper IDs from the supplied data. Do not invent IDs."
+            },
+            {
+              "content": "=Research question: {{ $json.research_question }}\nWorkspace ID: {{ $json.workspace_id }}\n\nAnalyzed papers (paper metadata + AI analyses) as JSON:\n{{ JSON.stringify($json.analyzed_evidence) }}\n\nSynthesize the evidence across these papers and answer the research question. Return ONLY the JSON object described in the system instructions."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "maxTokens": 4000,
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          }
+        }
+      },
+      "id": "b28b8205-002b-470c-8018-c2f3830cc14d",
+      "name": "AI Research Synthesis",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        2240,
+        96
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "GtF6L5Ede6qLNFHH",
+          "name": "n8n free OpenAI API credits"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json || {};\n\n// Extract raw text from the various OpenAI response shapes\nlet raw = null;\nif (j.output && j.output[0] && j.output[0].content && j.output[0].content[0]) {\n  raw = j.output[0].content[0].text;\n}\nif (raw == null) raw = j.output_text;\nif (raw == null) raw = j.text;\nif (raw == null && j.message) raw = j.message.content;\nif (raw == null && j.content) raw = j.content;\nif (raw == null && typeof j === 'object' && j.overview) raw = j;\n\nlet parsed = null;\nlet parse_ok = true;\ntry {\n  if (raw && typeof raw === 'object') { parsed = raw; }\n  else if (typeof raw === 'string') { parsed = JSON.parse(raw); }\n  else { parse_ok = false; }\n} catch (e) { parse_ok = false; }\n\nconst required = ['research_question','overview','key_themes','major_findings','comparison','research_gaps','limitations','conclusion','papers_considered'];\nlet missing = [];\nif (parse_ok && parsed) {\n  missing = required.filter(k => !(k in parsed));\n} else {\n  missing = required.slice();\n}\n\nconst is_valid_output = parse_ok && parsed != null && missing.length === 0;\n\nreturn [{ json: {\n  is_valid_output,\n  missing,\n  synthesis: parsed,\n} }];"
+      },
+      "id": "228e6ff6-5e7e-4580-853a-7e4010316759",
+      "name": "Validate/Parse Synthesis Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2512,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "valid-output",
+              "leftValue": "={{ $json.is_valid_output }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f81fa4f4-ed01-4740-a97d-0a95c97ff52d",
+      "name": "Is Synthesis Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2688,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Prepare Research Evidence').first().json || {};\nconst s = ($input.first().json && $input.first().json.synthesis) || {};\n\nreturn [{ json: {\n  success: true,\n  message: 'Research synthesis generated successfully',\n  workspace_id: ctx.workspace_id,\n  research_question: ctx.research_question,\n  papers_considered: s.papers_considered || ctx.papers_considered || [],\n  synthesis: {\n    overview: s.overview,\n    key_themes: s.key_themes,\n    major_findings: s.major_findings,\n    comparison: s.comparison,\n    research_gaps: s.research_gaps,\n    limitations: s.limitations,\n    conclusion: s.conclusion,\n  },\n} }];"
+      },
+      "id": "b970bc98-9109-4cb3-840a-fe429fea7e86",
+      "name": "Prepare Synthesis Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "eda03f2a-c31f-4564-bbb3-114334d5b146",
+      "name": "Research Synthesis Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3136,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: {\n  success: false,\n  message: 'Research synthesis failed',\n} }];"
+      },
+      "id": "8e34c754-3b20-4e4d-817e-3e00cc5f476e",
+      "name": "Prepare Synthesis Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "04835d0d-41b3-4b2b-a93c-e24f3d481021",
+      "name": "Synthesis Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        3136,
+        192
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json || {};\nreturn [{ json: {\n  success: false,\n  message: 'No analyzed papers are available for synthesis',\n  workspace_id: j.workspace_id,\n} }];"
+      },
+      "id": "d6dc217c-09ab-47e7-9626-1e79c47d74f4",
+      "name": "Prepare No Analysis Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2240,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "5f3965c4-bd94-48e4-bba3-219ff2ce681f",
+      "name": "No Analysis Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2464,
+        288
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json || {};\nreturn [{ json: {\n  success: false,\n  message: 'No papers found for this workspace',\n  workspace_id: j.workspace_id,\n} }];"
+      },
+      "id": "26bdfd1c-e0a8-4fbf-861f-3fd649138011",
+      "name": "Prepare No Papers Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 404
+        }
+      },
+      "id": "a9503212-8ed6-4897-8dd8-bf66f352449f",
+      "name": "No Papers Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1792,
+        384
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const j = $input.first().json || {};\nreturn [{ json: {\n  success: false,\n  message: 'Invalid research synthesis input',\n  error: j.error || 'One or more required inputs are missing or invalid',\n} }];"
+      },
+      "id": "52f8d3e5-28d3-4e06-996b-d12ce06a976a",
+      "name": "Prepare Validation Error",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        480
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "de5c7999-8d83-433d-b864-8bf2dc638e31",
+      "name": "Validation Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Research Synthesis Input": {
+      "main": [
+        [
+          {
+            "node": "Normalize Synthesis Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Synthesis Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Synthesis Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Synthesis Input": {
+      "main": [
+        [
+          {
+            "node": "Is Input Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Input Valid?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Workspace Papers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Validation Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Workspace Papers": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Papers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Papers": {
+      "main": [
+        [
+          {
+            "node": "Papers Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Papers Found?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Paper Analyses",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare No Papers Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Paper Analyses": {
+      "main": [
+        [
+          {
+            "node": "Prepare Research Evidence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Research Evidence": {
+      "main": [
+        [
+          {
+            "node": "Has Analysis Evidence?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Analysis Evidence?": {
+      "main": [
+        [
+          {
+            "node": "AI Research Synthesis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare No Analysis Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Research Synthesis": {
+      "main": [
+        [
+          {
+            "node": "Validate/Parse Synthesis Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate/Parse Synthesis Output": {
+      "main": [
+        [
+          {
+            "node": "Is Synthesis Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Synthesis Valid?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Synthesis Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Synthesis Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Synthesis Success Response": {
+      "main": [
+        [
+          {
+            "node": "Research Synthesis Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Synthesis Error": {
+      "main": [
+        [
+          {
+            "node": "Synthesis Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare No Analysis Response": {
+      "main": [
+        [
+          {
+            "node": "No Analysis Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare No Papers Response": {
+      "main": [
+        [
+          {
+            "node": "No Papers Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Validation Error": {
+      "main": [
+        [
+          {
+            "node": "Validation Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": null
+}
